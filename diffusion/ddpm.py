@@ -3,24 +3,30 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 from flax import nnx
+
 from diffusion.unet import UNet
 
 
 class DDPM(nnx.Module):
-    def __init__(self, epsilon_model: UNet, noise_schedule: dict[str, Any], num_steps: int):
+    def __init__(
+        self,
+        epsilon_model: UNet,
+        noise_schedule: dict[str, Any],
+        num_steps: int,
+        device: jax.Device,
+    ):
         self.epsilon_model = epsilon_model
         self.noise_schedule = noise_schedule
         self.num_steps = num_steps
+        self.device = device
 
     def __call__(self, x: jax.Array, rngs: nnx.Rngs) -> tuple[jax.Array, jax.Array]:
-        # Figure out how to handle RNGs
         batch_size = x.shape[0]
 
         times = jax.random.randint(
             rngs.times(), shape=(batch_size,), minval=1, maxval=self.num_steps + 1
         )
-        # Different movement to device, original based device on x, where now hardcoded to GPU
-        times = jax.device_put(times, jax.devices("gpu")[0])
+        times = jax.device_put(times, self.device)
         epsilon = jax.random.normal(rngs.noise(), shape=x.shape)
 
         # Note: sqrtab shape is (1, 1, 1, 1) only when times is array shape (batch_size,)
@@ -37,18 +43,19 @@ class DDPM(nnx.Module):
         image_dimensions: tuple[int, int],
         image_channels: int,
         rngs: nnx.Rngs,
-        device,
     ) -> jax.Array:
         image_shape = (num_images, *image_dimensions, image_channels)
-        x_i = jax.random.normal(rngs.noise(), shape=image_shape).to_device(device)
+        x_i = jax.random.normal(rngs.noise(), shape=image_shape).to_device(self.device)
+        epsilon_model = nnx.jit(self.epsilon_model)
 
         for i in range(self.num_steps, 0, -1):
             epsilon = (
-                jax.random.normal(rngs.noise(), shape=image_shape).to_device(device) if i > 1 else 0
+                jax.random.normal(rngs.noise(), shape=image_shape).to_device(self.device)
+                if i > 1
+                else 0
             )
-            # TODO: Tile is correct, but strange that shape is (num_images, 1) and not (num_images,)
-            epsilon_theta = self.epsilon_model(
-                x_i, jnp.tile(jnp.array(i / self.num_steps).to_device(device), (num_images, 1))
+            epsilon_theta = epsilon_model(
+                x_i, jnp.tile(jnp.array(i / self.num_steps).to_device(self.device), (num_images, 1))
             )
             x_i = (
                 self.noise_schedule["oneover_sqrta"][i]
