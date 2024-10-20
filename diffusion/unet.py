@@ -34,6 +34,7 @@ class ConvBlock(nnx.Module):
                 rngs=rngs,
             ),
             nnx.GroupNorm(num_features=out_features, num_groups=8, rngs=rngs),
+            nnx.relu,
         )
         self.conv2 = nnx.Sequential(
             nnx.Conv(
@@ -45,8 +46,7 @@ class ConvBlock(nnx.Module):
                 rngs=rngs,
             ),
             nnx.GroupNorm(num_features=out_features, num_groups=8, rngs=rngs),
-        )
-        self.conv3 = nnx.Sequential(
+            nnx.relu,
             nnx.Conv(
                 out_features,
                 out_features,
@@ -56,17 +56,12 @@ class ConvBlock(nnx.Module):
                 rngs=rngs,
             ),
             nnx.GroupNorm(num_features=out_features, num_groups=8, rngs=rngs),
+            nnx.relu,
         )
 
     def __call__(self, x: jax.Array) -> jax.Array:
-        # TODO: Check that this rearrange did not break anything
         residual = self.conv1(x)
-        # Why not swish?
-        residual = nnx.relu(residual)
         out = self.conv2(residual)
-        out = nnx.relu(out)
-        out = self.conv3(out)
-        out = nnx.relu(out)
         if self.is_residual:
             out = residual + out
             return out / 1.414
@@ -76,7 +71,7 @@ class ConvBlock(nnx.Module):
 
 class DownBlock(nnx.Module):
     def __init__(self, in_features: int, out_features: int, rngs: nnx.Rngs):
-        self.conv = ConvBlock(in_features, out_features, rngs=rngs)
+        self.conv = ConvBlock(in_features, out_features, rngs=rngs, is_residual=False)
 
     def __call__(self, x: jax.Array) -> jax.Array:
         out = self.conv(x)
@@ -87,7 +82,7 @@ class DownBlock(nnx.Module):
 class UpBlock(nnx.Module):
     def __init__(self, in_features: int, out_features: int, rngs: nnx.Rngs):
         self.conv = nnx.Sequential(
-            # Due to differences with pytorch potentially replace with resize + regular conv
+            # Potentially replace with resize + regular conv
             nnx.ConvTranspose(
                 in_features,
                 out_features,
@@ -96,8 +91,8 @@ class UpBlock(nnx.Module):
                 padding="SAME",
                 rngs=rngs,
             ),
-            ConvBlock(out_features, out_features, rngs=rngs),
-            ConvBlock(out_features, out_features, rngs=rngs),
+            ConvBlock(out_features, out_features, rngs=rngs, is_residual=False),
+            ConvBlock(out_features, out_features, rngs=rngs, is_residual=False),
         )
 
     def __call__(self, x: jax.Array, skip: jax.Array) -> jax.Array:
@@ -144,8 +139,7 @@ class UNet(nnx.Module):
         down2 = self.down2(down1)
         down3 = self.down3(down2)
 
-        # TODO: Check if correct; figure out why the avg_pool here & thro full meaning
-        # This reduces from (4 x 4) to vector (1 x 1)
+        # From (4 x 4) to vector (1 x 1)
         thro = nnx.relu(nnx.avg_pool(down3, window_shape=(4, 4), strides=(4, 4)))
         time_embedding = self.time_embedding(times).reshape(-1, 1, 1, self.num_features * 2)
         # From vector to (4 x 4)
