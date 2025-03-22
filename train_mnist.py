@@ -22,21 +22,12 @@ from diffusion.unet import UNet
 
 def normalise_batch(samples: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     data = np.array(samples["image"]).astype(np.float32)
-
-    mean_per_sample = np.mean(data, axis=(1, 2), keepdims=True)
-    std_per_sample = np.std(data, axis=(1, 2), keepdims=True)
-
-    normalised_data = (data - mean_per_sample) / std_per_sample
-
-    desired_mean = 0.5
-    desired_std = 1
-
-    scaled_data = (normalised_data * desired_std) + desired_mean
     # Pad from 28x28 to 32x32 for easier downsampling and upsampling
-    scaled_data = np.pad(
-        scaled_data, pad_width=((0, 0), (2, 2), (2, 2)), mode="constant", constant_values=0
+    data = np.pad(
+        data, pad_width=((0, 0), (2, 2), (2, 2)), mode="constant", constant_values=-1
     )
-    samples["image"] = scaled_data
+    normalised_data = ((data / 255.0) - 0.5) / 0.5
+    samples["image"] = normalised_data
     return samples
 
 
@@ -104,6 +95,7 @@ def train_mnist(num_epochs: int):
                 image_channels=1,
                 rngs=sampling_rngs,
             )
+            x_0 = ((x_0 + 1) * 127.5).clip(0, 255)
             # Squeeze since grayscale
             matplotlib.image.imsave(
                 f"imgs/numbers/image_{i}.png",

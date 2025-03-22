@@ -41,17 +41,8 @@ def crop_resize(img: np.ndarray, size: tuple[int, int] = (32, 32)) -> np.ndarray
 
 def normalise_batch(batch: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     data = np.array([crop_resize(image) for image in batch["image"]]).astype(np.float32)
-
-    mean_per_sample = np.mean(data, axis=(1, 2), keepdims=True)
-    std_per_sample = np.std(data, axis=(1, 2), keepdims=True)
-
-    normalised_data = (data - mean_per_sample) / std_per_sample
-
-    desired_mean = 0.5
-    desired_std = 1
-
-    scaled_data = (normalised_data * desired_std) + desired_mean
-    batch["image"] = scaled_data
+    normalised_data = ((data / 255.0) - 0.5) / 0.5
+    batch["image"] = normalised_data
     return batch
 
 
@@ -101,7 +92,7 @@ def train_flowers(num_epochs: int):
         dataset = dataset.random_shuffle().materialize()
         progress_bar = tqdm(
             dataset.iter_batches(
-                prefetch_batches=1, batch_size=256, batch_format="numpy", drop_last=True
+                prefetch_batches=1, batch_size=128, batch_format="numpy", drop_last=True
             )
         )
         for batch in progress_bar:
@@ -121,7 +112,7 @@ def train_flowers(num_epochs: int):
                 image_channels=3,
                 rngs=sampling_rngs,
             )
-            x_0 = ((x_0.clip(-1, 1) + 1) / 2.0) * 255
+            x_0 = ((x_0 + 1) * 127.5 + 0.5).clip(0, 255)
             matplotlib.image.imsave(
                 f"imgs/flowers/image_{i}.png",
                 jnp.concatenate(x_0, axis=1).astype(jnp.uint8),
@@ -129,4 +120,4 @@ def train_flowers(num_epochs: int):
 
 
 if __name__ == "__main__":
-    train_flowers(num_epochs=100)
+    train_flowers(num_epochs=200)
